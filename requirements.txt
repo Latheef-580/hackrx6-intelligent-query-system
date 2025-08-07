@@ -1,0 +1,51 @@
+# FastAPI and web framework
+fastapi
+uvicorn[standard]
+pydantic
+python-multipart
+
+# HTTP client
+aiohttp
+requests
+
+# Document processing
+PyPDF2
+python-docx
+
+# Text processing and NLP (minimal)
+numpy
+scipy
+
+# Vector search and embeddings
+faiss-cpu
+
+# Machine learning utilities
+scikit-learn
+
+# Data manipulation
+pandas
+
+# Logging and monitoring
+python-json-logger
+
+# Environment and configuration
+python-dotenv
+
+# Development and testing (optional)
+pytest
+pytest-asyncio
+httpx
+
+# Production server (alternative to uvicorn)
+gunicorn
+
+# Memory and performance
+psutil
+
+# Text similarity and matching
+fuzzywuzzy
+
+# Additional utilities
+tqdm
+dateutils
+pytz

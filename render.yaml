@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: hackrx6-intelligent-query-system
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: USE_OPENAI_EMBEDDINGS
+        value: false
+      - key: REQUIRE_AUTH
+        value: true
+    healthCheckPath: /health 
