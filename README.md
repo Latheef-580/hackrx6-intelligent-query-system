@@ -1,58 +1,51 @@
-# HackRx 6.0 - Intelligent Query-Retrieval System
+# 🚀 HackRx 6.0 - Intelligent Query-Retrieval System
 
-A complete LLM-powered document analysis system for insurance, legal, HR, and compliance documents. This system processes large documents and provides intelligent, explainable answers to natural language queries.
+A complete LLM-powered document analysis system for insurance, legal, HR, and compliance documents. Built for the HackRx 6.0 (Bajaj Allianz) Hackathon.
 
-## 🚀 Features
+## 🎯 Features
 
-- **Multi-format Document Processing**: PDF, DOCX, and Email support
-- **Semantic Search**: FAISS-based vector search with embeddings
-- **Intelligent Retrieval**: Context-aware clause matching and retrieval
-- **Explainable AI**: Clear decision rationale and clause traceability
-- **High Performance**: Optimized for low latency (<2s per query)
-- **Token Efficient**: RAG-based approach to minimize LLM costs
-- **Production Ready**: FastAPI backend with proper error handling
+- **Document Processing**: PDF, DOCX, and Email support
+- **Embedding Generation**: Sentence transformers for semantic search
+- **Vector Search**: FAISS for efficient similarity search
+- **RAG Implementation**: Retrieval-Augmented Generation for accurate answers
+- **Structured Output**: JSON responses in HackRx 6.0 format
+- **Authentication**: Bearer token support
+- **Health Monitoring**: System status checks
+- **API Documentation**: Interactive Swagger UI
 
-## 🏗️ System Architecture
+## 🏗️ Architecture
 
 ```
-Input Documents (PDF/DOCX/Email)
-           ↓
-    Document Processor
-           ↓
-    Text Extraction & Chunking
-           ↓
-    Embedding Generation (FAISS)
-           ↓
-    Vector Store Index
-           ↓
-    Query Processing
-           ↓
-    Clause Retrieval & Matching
-           ↓
-    LLM Response Generation
-           ↓
-    Structured JSON Output
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Document      │    │   Embedding     │    │   Vector        │
+│   Processor     │───▶│   Manager       │───▶│   Store (FAISS) │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Text          │    │   Semantic      │    │   Response      │
+│   Extraction    │    │   Search        │    │   Builder       │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
-## 📋 Requirements
+## 🚀 Quick Start
 
+### Prerequisites
 - Python 3.8+
-- OpenAI API Key (optional, falls back to local embeddings)
-- 4GB+ RAM (for embedding models)
-- Internet connection (for document downloads)
+- Git
 
-## 🛠️ Installation
+### Local Development
 
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
-   cd hackrx6
+   git clone https://github.com/YOUR_USERNAME/hackrx6-intelligent-query-system.git
+   cd hackrx6-intelligent-query-system
    ```
 
 2. **Create virtual environment**
    ```bash
    python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   source venv/bin/activate  # On Windows: .\venv\Scripts\Activate.ps1
    ```
 
 3. **Install dependencies**
@@ -60,204 +53,142 @@ Input Documents (PDF/DOCX/Email)
    pip install -r requirements.txt
    ```
 
-4. **Set environment variables**
+4. **Start the server**
    ```bash
-   # Create .env file
-   echo "OPENAI_API_KEY=your_openai_api_key_here" > .env
-   echo "ENVIRONMENT=development" >> .env
+   uvicorn app.main:app --host 0.0.0.0 --port 8000
    ```
 
-## 🚀 Quick Start
+5. **Access the API**
+   - Health Check: http://localhost:8000/health
+   - API Documentation: http://localhost:8000/docs
+   - Main Endpoint: http://localhost:8000/hackrx/run
 
-1. **Start the server**
-   ```bash
-   uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-   ```
+## 📡 API Endpoints
 
-2. **Test the API**
-   ```bash
-   curl -X GET http://localhost:8000/health
-   ```
-
-3. **Process documents**
-   ```bash
-   curl -X POST http://localhost:8000/hackrx/run \
-     -H "Content-Type: application/json" \
-     -H "Authorization: Bearer your_team_token" \
-     -d @sample_payload.json
-   ```
-
-## 📚 API Documentation
-
-### Base URL
-```
-http://localhost:8000/api/v1
-```
-
-### Authentication
-```
-Authorization: Bearer <team_token>
-```
-
-### Endpoints
-
-#### 1. Health Check
-```http
+### Health Check
+```bash
 GET /health
 ```
 
-#### 2. Main Processing Endpoint
-```http
+### Main Endpoint (HackRx 6.0)
+```bash
 POST /hackrx/run
-```
+Authorization: Bearer YOUR_TEAM_TOKEN
+Content-Type: application/json
 
-**Request Body:**
-```json
 {
-    "documents": ["https://example.com/document.pdf"],
-    "questions": [
-        "What is the grace period for premium payment?",
-        "Does this policy cover knee surgery?"
-    ]
+  "documents": "https://example.com/document.pdf",
+  "questions": [
+    "What is the grace period for premium payment?",
+    "What is the waiting period for pre-existing diseases?"
+  ]
 }
 ```
 
-**Response:**
+### Response Format
 ```json
 {
-    "answers": [
-        "A grace period of thirty days is provided for premium payment...",
-        "Yes, the policy covers knee surgery under the following conditions..."
-    ]
+  "answers": [
+    "Based on the policy, there is a grace period of 15 days...",
+    "The waiting period for pre-existing diseases is 48 months..."
+  ]
 }
 ```
 
-#### 3. Test Endpoint
-```http
-POST /test/single-question
+## 🚀 Deployment
+
+### Deploy to Render (Recommended)
+
+1. **Fork this repository** to your GitHub account
+2. **Go to [Render.com](https://render.com)** and sign up
+3. **Click "New +" → "Web Service"**
+4. **Connect your GitHub repository**
+5. **Configure the deployment**:
+   - **Name**: `hackrx6-intelligent-query-system`
+   - **Environment**: `Python 3`
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+   - **Health Check Path**: `/health`
+6. **Click "Create Web Service"**
+
+### Your Webhook URL
+After deployment, your webhook URL will be:
 ```
-
-## 🔧 Configuration
-
-Environment variables in `app/config.py`:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OPENAI_API_KEY` | - | OpenAI API key for embeddings/LLM |
-| `USE_OPENAI_EMBEDDINGS` | true | Use OpenAI embeddings (fallback to local) |
-| `EMBEDDING_MODEL` | all-MiniLM-L6-v2 | Local embedding model |
-| `LLM_MODEL` | gpt-3.5-turbo | OpenAI model for responses |
-| `CHUNK_SIZE` | 300 | Words per document chunk |
-| `CHUNK_OVERLAP` | 50 | Overlap between chunks |
-| `MIN_RELEVANCE_SCORE` | 0.3 | Minimum similarity threshold |
-
-## 🏭 Production Deployment
-
-### Render Deployment
-1. Connect your repository to Render
-2. Set build command: `pip install -r requirements.txt`
-3. Set start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-4. Add environment variables in Render dashboard
-
-### Azure Deployment
-1. Create Azure App Service
-2. Deploy using Azure CLI or GitHub Actions
-3. Set environment variables in App Service Configuration
-
-### Docker Deployment
-```dockerfile
-FROM python:3.9-slim
-
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-COPY . .
-EXPOSE 8000
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+https://hackrx6-intelligent-query-system.onrender.com/hackrx/run
 ```
 
 ## 🧪 Testing
 
-### Unit Tests
+### Test Locally
 ```bash
-pytest tests/ -v
+python demo_output.py
 ```
 
-### Integration Tests
+### Test Deployed System
 ```bash
-python -m pytest tests/test_integration.py -v
+python test_deployment.py
 ```
 
-### Load Testing
-```bash
-# Using Apache Bench
-ab -n 100 -c 10 -H "Authorization: Bearer your_token" \
-   -T application/json -p sample_payload.json \
-   http://localhost:8000/hackrx/run
+## 📁 Project Structure
+
+```
+hackrx6/
+├── app/
+│   ├── main.py              # FastAPI application
+│   ├── config.py            # Configuration settings
+│   ├── document_processor.py # Document processing
+│   ├── embeddings.py        # Embedding generation
+│   ├── retriever.py         # Vector search
+│   └── response_builder.py  # Response generation
+├── tests/
+│   └── test_main.py         # Unit tests
+├── requirements.txt         # Python dependencies
+├── render.yaml             # Render deployment config
+├── Dockerfile              # Docker configuration
+├── docker-compose.yml      # Docker Compose setup
+├── sample_payload.json     # Sample API request
+├── test_system.py          # System test script
+└── README.md               # This file
 ```
 
-## 📊 Performance Metrics
+## 🔧 Configuration
 
-- **Document Processing**: ~2-5 seconds per document
-- **Query Response**: <2 seconds per question
-- **Memory Usage**: ~500MB-1GB (depending on document size)
-- **Concurrent Requests**: Up to 10 simultaneous requests
+Environment variables can be set in `.env` file:
 
-## 🔍 Troubleshooting
+```env
+ENVIRONMENT=production
+OPENAI_API_KEY=your_openai_key_here
+USE_OPENAI_EMBEDDINGS=false
+LOG_LEVEL=INFO
+REQUIRE_AUTH=true
+```
 
-### Common Issues
+## 🏆 HackRx 6.0 Submission
 
-1. **Memory Errors**
-   - Reduce `CHUNK_SIZE` in config
-   - Use smaller embedding model
-   - Increase system RAM
+### Webhook URL
+```
+https://your-app-name.onrender.com/hackrx/run
+```
 
-2. **Slow Performance**
-   - Enable GPU acceleration for embeddings
-   - Use OpenAI embeddings instead of local
-   - Optimize document chunking
-
-3. **API Errors**
-   - Check OpenAI API key validity
-   - Verify document URLs are accessible
-   - Check network connectivity
-
-### Logs
-```bash
-# View application logs
-tail -f logs/app.log
-
-# Debug mode
-ENVIRONMENT=development uvicorn app.main:app --log-level debug
+### Submission Notes
+```
+Complete LLM-powered Intelligent Query-Retrieval System with:
+- RAG (Retrieval-Augmented Generation)
+- Embedding-based semantic search
+- Multi-format document processing (PDF, DOCX, Email)
+- Explainable AI with source traceability
+- Structured JSON responses
+- Authentication and health monitoring
 ```
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create feature branch
-3. Make changes with tests
-4. Submit pull request
+This project was built for the HackRx 6.0 hackathon. Feel free to fork and improve!
 
 ## 📄 License
 
-This project is developed for HackRx 6.0 (Bajaj Allianz Hackathon).
-
-## 🏆 HackRx 6.0 Evaluation Criteria
-
-This solution addresses all evaluation parameters:
-
-- ✅ **Accuracy**: Precise query understanding and clause matching
-- ✅ **Token Efficiency**: Optimized LLM usage with RAG approach
-- ✅ **Latency**: Fast response times with FAISS vector search
-- ✅ **Reusability**: Modular, extensible code architecture
-- ✅ **Explainability**: Clear decision reasoning and clause traceability
-
-## 📞 Support
-
-For HackRx 6.0 related queries, contact the hackathon organizers.
+This project is created for educational and hackathon purposes.
 
 ---
 
-**Built with ❤️ for HackRx 6.0 - Bajaj Allianz Hackathon**
+**Built with ❤️ for HackRx 6.0 (Bajaj Allianz Hackathon)**
