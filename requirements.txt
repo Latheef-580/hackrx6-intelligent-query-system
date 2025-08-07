@@ -18,6 +18,7 @@ scipy
 
 # Vector search and embeddings
 faiss-cpu
+sentence-transformers
 
 # Machine learning utilities
 scikit-learn
