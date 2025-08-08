@@ -10,6 +10,7 @@ from sentence_transformers import SentenceTransformer
 import pickle
 import tempfile
 from datetime import datetime
+import torch
 
 from app.config import settings
 from app.document_processor import DocumentChunk
@@ -17,153 +18,134 @@ from app.document_processor import DocumentChunk
 logger = logging.getLogger(__name__)
 
 class EmbeddingManager:
-    def __init__(self):
+    def __init__(self, model_name: str = "paraphrase-MiniLM-L3-v2"):
+        """
+        Initialize the embedding manager with a smaller, memory-efficient model.
+        """
+        self.model_name = model_name
         self.model = None
-        self.embedding_dim = settings.EMBEDDING_DIM
-        self.model_name = settings.EMBEDDING_MODEL
-        self.openai_api_key = settings.OPENAI_API_KEY
-        self.use_openai = settings.USE_OPENAI_EMBEDDINGS
-        self.session = None
-        
-        # Initialize embedding model
-        self._initialize_model()
+        self.index = None
+        self.chunks = []
+        self._load_model()
     
-    def _initialize_model(self):
-        """Initialize the embedding model"""
+    def _load_model(self):
+        """Load the sentence transformer model with memory optimizations."""
         try:
-            if self.use_openai and self.openai_api_key:
-                logger.info("Using OpenAI embeddings")
-                self.embedding_dim = 1536  # OpenAI ada-002 dimension
+            logger.info(f"Loading sentence transformer model: {self.model_name}")
+            
+            # Memory optimization settings
+            torch.set_num_threads(1)  # Limit CPU threads
+            if torch.cuda.is_available():
+                device = torch.device("cuda")
             else:
-                logger.info(f"Loading sentence transformer model: {self.model_name}")
-                self.model = SentenceTransformer(self.model_name)
-                # Get actual embedding dimension from the model
-                test_embedding = self.model.encode(["test"])
-                self.embedding_dim = test_embedding.shape[1]
-                logger.info(f"Model loaded. Embedding dimension: {self.embedding_dim}")
-        except Exception as e:
-            logger.error(f"Error initializing embedding model: {str(e)}")
-            # Fallback to a lightweight model
-            try:
-                self.model = SentenceTransformer('all-MiniLM-L6-v2')
-                test_embedding = self.model.encode(["test"])
-                self.embedding_dim = test_embedding.shape[1]
-                logger.info(f"Fallback model loaded. Embedding dimension: {self.embedding_dim}")
-            except Exception as fallback_error:
-                logger.error(f"Fallback model failed: {str(fallback_error)}")
-                raise Exception("Could not initialize any embedding model")
-    
-    async def _get_session(self):
-        """Get or create aiohttp session"""
-        if self.session is None or self.session.closed:
-            timeout = aiohttp.ClientTimeout(total=60)
-            self.session = aiohttp.ClientSession(timeout=timeout)
-        return self.session
-    
-    async def _get_openai_embeddings(self, texts: List[str]) -> np.ndarray:
-        """Get embeddings from OpenAI API"""
-        try:
-            session = await self._get_session()
+                device = torch.device("cpu")
             
-            headers = {
-                'Authorization': f'Bearer {self.openai_api_key}',
-                'Content-Type': 'application/json'
-            }
+            # Load model with memory optimizations
+            self.model = SentenceTransformer(
+                self.model_name,
+                device=device,
+                cache_folder=None  # Disable caching to save memory
+            )
             
-            # Process in batches to avoid token limits
-            batch_size = 100
-            all_embeddings = []
-            
-            for i in range(0, len(texts), batch_size):
-                batch_texts = texts[i:i + batch_size]
+            # Set model to evaluation mode and disable gradients
+            self.model.eval()
+            for param in self.model.parameters():
+                param.requires_grad = False
                 
-                payload = {
-                    'input': batch_texts,
-                    'model': 'text-embedding-ada-002'
-                }
-                
-                async with session.post(
-                    'https://api.openai.com/v1/embeddings',
-                    headers=headers,
-                    json=payload
-                ) as response:
-                    
-                    if response.status != 200:
-                        error_text = await response.text()
-                        raise Exception(f"OpenAI API error {response.status}: {error_text}")
-                    
-                    result = await response.json()
-                    batch_embeddings = [item['embedding'] for item in result['data']]
-                    all_embeddings.extend(batch_embeddings)
-                
-                # Small delay to respect rate limits
-                await asyncio.sleep(0.1)
-            
-            return np.array(all_embeddings, dtype=np.float32)
+            logger.info(f"Model loaded successfully on {device}")
             
         except Exception as e:
-            logger.error(f"Error getting OpenAI embeddings: {str(e)}")
+            logger.error(f"Error loading model: {e}")
             raise
     
-    def _get_local_embeddings(self, texts: List[str]) -> np.ndarray:
-        """Get embeddings using local model"""
+    def create_embeddings(self, texts: List[str]) -> np.ndarray:
+        """Create embeddings for a list of texts."""
         try:
-            if self.model is None:
-                raise Exception("Local embedding model not initialized")
+            if not texts:
+                return np.array([])
             
-            # Encode texts in batches for memory efficiency
-            batch_size = 32
+            # Process in smaller batches to reduce memory usage
+            batch_size = 8  # Reduced batch size
             embeddings = []
             
             for i in range(0, len(texts), batch_size):
-                batch_texts = texts[i:i + batch_size]
+                batch = texts[i:i + batch_size]
                 batch_embeddings = self.model.encode(
-                    batch_texts,
+                    batch,
+                    convert_to_numpy=True,
                     show_progress_bar=False,
-                    convert_to_numpy=True
+                    normalize_embeddings=True
                 )
                 embeddings.append(batch_embeddings)
+                
+                # Clear GPU memory if using CUDA
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
             
-            return np.vstack(embeddings).astype(np.float32)
+            return np.vstack(embeddings)
             
         except Exception as e:
-            logger.error(f"Error getting local embeddings: {str(e)}")
+            logger.error(f"Error creating embeddings: {e}")
             raise
     
-    async def generate_embeddings(self, texts: List[str]) -> np.ndarray:
-        """Generate embeddings for a list of texts"""
+    def build_index(self, chunks: List[str]) -> None:
+        """Build FAISS index from text chunks."""
         try:
-            logger.info(f"Generating embeddings for {len(texts)} texts")
+            self.chunks = chunks
+            if not chunks:
+                logger.warning("No chunks provided for indexing")
+                return
             
-            if not texts:
-                return np.array([]).reshape(0, self.embedding_dim)
+            # Create embeddings
+            embeddings = self.create_embeddings(chunks)
             
-            # Filter out empty texts
-            non_empty_texts = [text.strip() for text in texts if text.strip()]
-            if not non_empty_texts:
-                logger.warning("All texts are empty after filtering")
-                return np.array([]).reshape(0, self.embedding_dim)
+            # Build FAISS index
+            dimension = embeddings.shape[1]
+            self.index = faiss.IndexFlatIP(dimension)  # Inner product for cosine similarity
+            self.index.add(embeddings.astype('float32'))
             
-            if self.use_openai and self.openai_api_key:
-                embeddings = await self._get_openai_embeddings(non_empty_texts)
-            else:
-                embeddings = self._get_local_embeddings(non_empty_texts)
-            
-            logger.info(f"Generated embeddings shape: {embeddings.shape}")
-            return embeddings
+            logger.info(f"FAISS index built with {len(chunks)} chunks")
             
         except Exception as e:
-            logger.error(f"Error generating embeddings: {str(e)}")
+            logger.error(f"Error building index: {e}")
             raise
     
-    async def generate_query_embedding(self, query: str) -> np.ndarray:
-        """Generate embedding for a single query"""
+    def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+        """Search for similar chunks using the query."""
         try:
-            embeddings = await self.generate_embeddings([query])
-            return embeddings[0] if len(embeddings) > 0 else np.zeros(self.embedding_dim)
+            if not self.index or not self.chunks:
+                return []
+            
+            # Create query embedding
+            query_embedding = self.create_embeddings([query])
+            
+            # Search
+            scores, indices = self.index.search(
+                query_embedding.astype('float32'), 
+                min(top_k, len(self.chunks))
+            )
+            
+            # Return results
+            results = []
+            for score, idx in zip(scores[0], indices[0]):
+                if idx < len(self.chunks):
+                    results.append({
+                        'chunk': self.chunks[idx],
+                        'score': float(score),
+                        'index': int(idx)
+                    })
+            
+            return results
+            
         except Exception as e:
-            logger.error(f"Error generating query embedding: {str(e)}")
-            raise
+            logger.error(f"Error searching: {e}")
+            return []
+    
+    def get_chunk_by_index(self, index: int) -> str:
+        """Get chunk by index."""
+        if 0 <= index < len(self.chunks):
+            return self.chunks[index]
+        return ""
 
 class VectorStore:
     def __init__(self, embedding_manager: EmbeddingManager):

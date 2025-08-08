@@ -1,203 +1,195 @@
-from fastapi import FastAPI, HTTPException, Depends, Request
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Dict, Any
 import logging
-import time
-from contextlib import asynccontextmanager
+import asyncio
+from typing import List, Dict, Any
+from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel
+import uvicorn
 
+from app.config import settings
 from app.document_processor import DocumentProcessor
-from app.embeddings import EmbeddingManager
 from app.retriever import DocumentRetriever
 from app.response_builder import ResponseBuilder
-from app.config import settings
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Global variables for managers
-document_processor = None
-embedding_manager = None
-document_retriever = None
-response_builder = None
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup
-    global document_processor, embedding_manager, document_retriever, response_builder
-    
-    logger.info("Initializing HackRx 6.0 Intelligent Query-Retrieval System...")
-    
-    # Initialize components
-    document_processor = DocumentProcessor()
-    embedding_manager = EmbeddingManager()
-    document_retriever = DocumentRetriever(embedding_manager)
-    response_builder = ResponseBuilder()
-    
-    logger.info("System initialized successfully!")
-    yield
-    
-    # Shutdown
-    logger.info("Shutting down system...")
-
+# Initialize FastAPI app
 app = FastAPI(
-    title="HackRx 6.0 - Intelligent Query-Retrieval System",
-    description="LLM-powered document analysis system for insurance/legal/HR/compliance documents",
-    version="1.0.0",
-    lifespan=lifespan
+    title="HackRx 6.0 Intelligent Query-Retrieval System",
+    description="LLM-Powered system for processing documents and answering queries",
+    version="1.0.0"
 )
 
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Security
+security = HTTPBearer()
 
+# Initialize components
+document_processor = DocumentProcessor()
+retriever = DocumentRetriever()
+response_builder = ResponseBuilder()
+
+# Pydantic models
 class HackRxRequest(BaseModel):
     documents: str  # Single document URL
-    questions: List[str]  # List of questions to answer
-
-class ClauseInfo(BaseModel):
-    text: str
-    relevance_score: float
-    document_section: str
+    questions: List[str]
 
 class HackRxResponse(BaseModel):
-    question: str
     answer: str
-    clauses_used: List[str]
-    decision_rationale: str
+    confidence: float
+    sources: List[str]
+    reasoning: str
 
-def verify_auth_token(request: Request):
-    """Verify authorization token (simulated for hackathon)"""
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid authorization token")
-    
-    token = auth_header.split(" ")[1]
-    # In real implementation, verify token against team database
-    if len(token) < 10:  # Basic validation
-        raise HTTPException(status_code=401, detail="Invalid team token")
-    
-    return token
+# Authentication dependency
+async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    if credentials.credentials != settings.TEAM_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token"
+        )
+    return credentials.credentials
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize the application on startup."""
+    logger.info("Initializing HackRx 6.0 Intelligent Query-Retrieval System...")
 
 @app.get("/")
 async def root():
-    """Health check endpoint"""
+    """Root endpoint."""
     return {
-        "message": "HackRx 6.0 - Intelligent Query-Retrieval System",
-        "status": "active",
-        "version": "1.0.0"
+        "message": "HackRx 6.0 Intelligent Query-Retrieval System",
+        "version": "1.0.0",
+        "status": "running"
     }
 
 @app.get("/health")
 async def health_check():
-    """Detailed health check"""
-    try:
-        return {
-            "status": "healthy",
-            "components": {
-                "document_processor": document_processor is not None,
-                "embedding_manager": embedding_manager is not None,
-                "document_retriever": document_retriever is not None,
-                "response_builder": response_builder is not None
-            },
-            "timestamp": time.time()
-        }
-    except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="System health check failed")
+    """Health check endpoint."""
+    return {
+        "status": "healthy",
+        "service": "HackRx 6.0 Intelligent Query-Retrieval System",
+        "version": "1.0.0"
+    }
 
-@app.post("/hackrx/run")
+@app.post("/hackrx/run", response_model=Dict[str, List[str]])
 async def process_documents(
     request: HackRxRequest,
-    auth_token: str = Depends(verify_auth_token)
+    token: str = Depends(verify_token)
 ):
     """
-    Main HackRx 6.0 endpoint for document processing and question answering
+    Process documents and answer questions.
+    This is the main endpoint for the HackRx 6.0 challenge.
     """
-    start_time = time.time()
-    
     try:
-        logger.info(f"Processing request with 1 document and {len(request.questions)} questions")
-        
+        # Validate input
         if not request.documents or not request.documents.strip():
-            raise HTTPException(status_code=400, detail="No document URL provided")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Document URL is required"
+            )
         
         if not request.questions:
-            raise HTTPException(status_code=400, detail="No questions provided")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="At least one question is required"
+            )
         
-        # Step 1: Process documents
-        logger.info("Step 1: Processing documents...")
-        processed_docs = []
+        logger.info(f"Processing 1 document with {len(request.questions)} questions")
         
-        try:
-            doc_content = await document_processor.process_document(request.documents)
-            processed_docs.append(doc_content)
-            logger.info(f"Successfully processed document: {request.documents[:50]}...")
-        except Exception as e:
-            logger.error(f"Failed to process document {request.documents}: {str(e)}")
-            raise HTTPException(status_code=400, detail=f"Failed to process document: {str(e)}")
+        # Process document
+        logger.info(f"Downloading and processing document: {request.documents}")
+        chunks = await document_processor.process_document(request.documents)
         
-        # Step 2: Create embeddings and build vector store
-        logger.info("Step 2: Creating embeddings and building vector store...")
-        vector_store_id = await document_retriever.build_vector_store(processed_docs)
+        if not chunks:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to extract text from document"
+            )
         
-        # Step 3: Process questions
-        logger.info("Step 3: Processing questions...")
+        logger.info(f"Extracted {len(chunks)} text chunks from document")
+        
+        # Index documents for retrieval
+        logger.info("Indexing documents for semantic search")
+        retriever.index_documents(chunks)
+        
+        # Process each question
         answers = []
-        
-        for question in request.questions:
+        for i, question in enumerate(request.questions, 1):
+            logger.info(f"Processing question {i}/{len(request.questions)}: {question[:100]}...")
+            
             try:
-                # Retrieve relevant clauses
-                relevant_clauses = await document_retriever.retrieve_relevant_clauses(
-                    question, vector_store_id, top_k=5
-                )
+                # Get relevant context
+                context = retriever.get_context_for_query(question, top_k=3)
                 
-                # Generate response
-                response = await response_builder.generate_response(
-                    question, relevant_clauses
-                )
+                # Generate answer
+                answer = response_builder.generate_answer(question, context)
+                answers.append(answer)
                 
-                answers.append(response.answer)
-                logger.info(f"Successfully processed question: {question[:50]}...")
+                logger.info(f"Generated answer for question {i}")
                 
             except Exception as e:
-                logger.error(f"Failed to process question '{question}': {str(e)}")
-                # Return error response for this question
-                answers.append("Unable to process this question due to an error.")
+                logger.error(f"Error processing question {i}: {e}")
+                answers.append(f"Error processing question: {str(e)}")
         
-        processing_time = time.time() - start_time
-        logger.info(f"Request processed successfully in {processing_time:.2f} seconds")
-        
-        # Return in HackRx 6.0 format
+        logger.info(f"Successfully processed all {len(request.questions)} questions")
         return {"answers": answers}
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Unexpected error in /hackrx/run: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"Unexpected error in process_documents: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error: {str(e)}"
+        )
 
 @app.post("/test/single-question")
 async def test_single_question(
-    document_url: str,
-    question: str,
-    auth_token: str = Depends(verify_auth_token)
+    request: HackRxRequest,
+    token: str = Depends(verify_token)
 ):
-    """Test endpoint for single question processing"""
+    """
+    Test endpoint for processing a single question.
+    """
     try:
-        request = HackRxRequest(documents=[document_url], questions=[question])
-        response = await process_documents(request, auth_token)
-        return response[0] if response else None
+        if not request.questions or len(request.questions) != 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Exactly one question is required for this endpoint"
+            )
+        
+        question = request.questions[0]
+        logger.info(f"Testing single question: {question[:100]}...")
+        
+        # Process document
+        chunks = await document_processor.process_document(request.documents)
+        retriever.index_documents(chunks)
+        
+        # Get context and generate answer
+        context = retriever.get_context_for_query(question, top_k=3)
+        answer = response_builder.generate_answer(question, context)
+        
+        return {
+            "question": question,
+            "answer": answer,
+            "context_length": len(context),
+            "chunks_processed": len(chunks)
+        }
+        
     except Exception as e:
-        logger.error(f"Test endpoint error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error in test_single_question: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level="info"
+    )
