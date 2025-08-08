@@ -1,57 +1,35 @@
 import os
+from pydantic_settings import BaseSettings
 from typing import Optional
 
-class Settings:
-    # API Configuration
-    OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY", "")
+class Settings(BaseSettings):
+    # Team token for authentication
+    TEAM_TOKEN: str = "b101776f72f459eca15614eb73a6f17efe85d475b21adb16c794068573018565"
     
-    # Model Configuration
-    USE_OPENAI_EMBEDDINGS: bool = bool(os.getenv("USE_OPENAI_EMBEDDINGS", "true").lower() == "true")
-    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-    EMBEDDING_DIM: int = int(os.getenv("EMBEDDING_DIM", "384"))
+    # OpenAI Configuration
+    OPENAI_API_KEY: Optional[str] = None
+    LLM_MODEL: str = "gpt-3.5-turbo"
+    MAX_RESPONSE_TOKENS: int = 500
     
-    # LLM Configuration
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
-    MAX_RESPONSE_TOKENS: int = int(os.getenv("MAX_RESPONSE_TOKENS", "500"))
+    # Embedding Configuration
+    USE_OPENAI_EMBEDDINGS: bool = False
+    EMBEDDING_MODEL: str = "all-MiniLM-L3-v2"
+    EMBEDDING_DIM: int = 384
     
-    # Document Processing Configuration
-    CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "300"))  # words per chunk
-    CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "50"))  # words overlap
+    # Memory optimization
+    USE_FALLBACK_MODE: bool = True  # Use simple text matching instead of embeddings
     
-    # Vector Search Configuration
-    FAISS_INDEX_TYPE: str = os.getenv("FAISS_INDEX_TYPE", "IndexFlatIP")
-    MIN_RELEVANCE_SCORE: float = float(os.getenv("MIN_RELEVANCE_SCORE", "0.3"))
+    # Document Processing
+    CHUNK_SIZE: int = 1000
+    CHUNK_OVERLAP: int = 200
+    MAX_CHUNKS: int = 100  # Limit chunks for memory
     
-    # Server Configuration
-    PORT: int = int(os.getenv("PORT", "8000"))
-    HOST: str = os.getenv("HOST", "0.0.0.0")
-    WORKERS: int = int(os.getenv("WORKERS", "1"))
+    # Environment
+    ENVIRONMENT: str = "production"
     
-    # Authentication
-    REQUIRE_AUTH: bool = bool(os.getenv("REQUIRE_AUTH", "true").lower() == "true")
-    
-    # Logging
-    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
-    
-    # Performance
-    MAX_CONCURRENT_REQUESTS: int = int(os.getenv("MAX_CONCURRENT_REQUESTS", "10"))
-    REQUEST_TIMEOUT: int = int(os.getenv("REQUEST_TIMEOUT", "120"))  # seconds
-    
-    # Memory Management
-    MAX_VECTOR_STORES: int = int(os.getenv("MAX_VECTOR_STORES", "10"))
-    MAX_DOCUMENT_SIZE_MB: int = int(os.getenv("MAX_DOCUMENT_SIZE_MB", "50"))
-    
-    def __init__(self):
-        # Validate critical settings
-        if self.USE_OPENAI_EMBEDDINGS and not self.OPENAI_API_KEY:
-            print("Warning: USE_OPENAI_EMBEDDINGS is True but OPENAI_API_KEY is not set. Falling back to local embeddings.")
-            self.USE_OPENAI_EMBEDDINGS = False
-        
-        # Auto-adjust embedding dimension for OpenAI
-        if self.USE_OPENAI_EMBEDDINGS and self.OPENAI_API_KEY:
-            self.EMBEDDING_DIM = 1536  # OpenAI ada-002 dimension
+    class Config:
+        env_file = ".env"
 
-# Global settings instance
 settings = Settings()
 
 # Environment-specific configurations

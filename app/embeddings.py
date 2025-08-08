@@ -11,6 +11,7 @@ import pickle
 import tempfile
 from datetime import datetime
 import torch
+import gc
 
 from app.config import settings
 from app.document_processor import DocumentChunk
@@ -18,9 +19,9 @@ from app.document_processor import DocumentChunk
 logger = logging.getLogger(__name__)
 
 class EmbeddingManager:
-    def __init__(self, model_name: str = "paraphrase-MiniLM-L3-v2"):
+    def __init__(self, model_name: str = "all-MiniLM-L3-v2"):
         """
-        Initialize the embedding manager with a smaller, memory-efficient model.
+        Initialize the embedding manager with the smallest available model.
         """
         self.model_name = model_name
         self.model = None
@@ -29,58 +30,86 @@ class EmbeddingManager:
         self._load_model()
     
     def _load_model(self):
-        """Load the sentence transformer model with memory optimizations."""
+        """Load the sentence transformer model with aggressive memory optimizations."""
         try:
             logger.info(f"Loading sentence transformer model: {self.model_name}")
             
-            # Memory optimization settings
+            # Aggressive memory optimization settings
             torch.set_num_threads(1)  # Limit CPU threads
-            if torch.cuda.is_available():
-                device = torch.device("cuda")
-            else:
-                device = torch.device("cpu")
+            torch.set_grad_enabled(False)  # Disable gradients globally
             
-            # Load model with memory optimizations
+            # Force garbage collection
+            gc.collect()
+            
+            # Use CPU only to avoid GPU memory issues
+            device = torch.device("cpu")
+            
+            # Load model with minimal memory footprint
             self.model = SentenceTransformer(
                 self.model_name,
                 device=device,
-                cache_folder=None  # Disable caching to save memory
+                cache_folder=None,  # Disable caching
+                trust_remote_code=False  # Don't load custom code
             )
             
-            # Set model to evaluation mode and disable gradients
+            # Set model to evaluation mode
             self.model.eval()
+            
+            # Freeze all parameters
             for param in self.model.parameters():
                 param.requires_grad = False
+                param.data = param.data.to(device)
+            
+            # Clear any cached computations
+            if hasattr(self.model, 'max_seq_length'):
+                self.model.max_seq_length = 128  # Reduce max sequence length
                 
             logger.info(f"Model loaded successfully on {device}")
             
+            # Force garbage collection again
+            gc.collect()
+            
         except Exception as e:
             logger.error(f"Error loading model: {e}")
-            raise
+            # Try with an even smaller fallback model
+            try:
+                logger.info("Trying fallback model: distilbert-base-nli-mean-tokens")
+                self.model = SentenceTransformer('distilbert-base-nli-mean-tokens', device='cpu')
+                self.model.eval()
+                for param in self.model.parameters():
+                    param.requires_grad = False
+                logger.info("Fallback model loaded successfully")
+            except Exception as fallback_error:
+                logger.error(f"Fallback model also failed: {fallback_error}")
+                raise Exception("Could not load any embedding model")
     
     def create_embeddings(self, texts: List[str]) -> np.ndarray:
-        """Create embeddings for a list of texts."""
+        """Create embeddings for a list of texts with minimal memory usage."""
         try:
             if not texts:
                 return np.array([])
             
-            # Process in smaller batches to reduce memory usage
-            batch_size = 8  # Reduced batch size
+            # Process in very small batches to minimize memory usage
+            batch_size = 4  # Very small batch size
             embeddings = []
             
             for i in range(0, len(texts), batch_size):
                 batch = texts[i:i + batch_size]
+                
+                # Truncate texts to reduce memory usage
+                truncated_batch = [text[:500] for text in batch]  # Limit text length
+                
                 batch_embeddings = self.model.encode(
-                    batch,
+                    truncated_batch,
                     convert_to_numpy=True,
                     show_progress_bar=False,
-                    normalize_embeddings=True
+                    normalize_embeddings=True,
+                    batch_size=1  # Process one at a time
                 )
                 embeddings.append(batch_embeddings)
                 
-                # Clear GPU memory if using CUDA
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                # Force garbage collection after each batch
+                gc.collect()
             
             return np.vstack(embeddings)
             
@@ -89,12 +118,19 @@ class EmbeddingManager:
             raise
     
     def build_index(self, chunks: List[str]) -> None:
-        """Build FAISS index from text chunks."""
+        """Build FAISS index from text chunks with memory optimization."""
         try:
             self.chunks = chunks
             if not chunks:
                 logger.warning("No chunks provided for indexing")
                 return
+            
+            # Limit number of chunks to reduce memory usage
+            max_chunks = 100  # Limit to 100 chunks maximum
+            if len(chunks) > max_chunks:
+                logger.info(f"Limiting chunks from {len(chunks)} to {max_chunks}")
+                chunks = chunks[:max_chunks]
+                self.chunks = chunks
             
             # Create embeddings
             embeddings = self.create_embeddings(chunks)
@@ -106,6 +142,10 @@ class EmbeddingManager:
             
             logger.info(f"FAISS index built with {len(chunks)} chunks")
             
+            # Clear embeddings from memory
+            del embeddings
+            gc.collect()
+            
         except Exception as e:
             logger.error(f"Error building index: {e}")
             raise
@@ -115,6 +155,9 @@ class EmbeddingManager:
         try:
             if not self.index or not self.chunks:
                 return []
+            
+            # Truncate query to reduce memory usage
+            query = query[:200]  # Limit query length
             
             # Create query embedding
             query_embedding = self.create_embeddings([query])
